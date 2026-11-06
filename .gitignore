@@ -1,0 +1,18 @@
+# 构建产物
+build/
+DerivedData/
+*.xcarchive
+*.ipa
+
+# Xcode
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+*.xcuserstate
+
+# macOS
+.DS_Store
+
+# 依赖
+Pods/
+.swiftpm/

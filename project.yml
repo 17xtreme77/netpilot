@@ -1,0 +1,84 @@
+name: NetPilot
+options:
+  bundleIdPrefix: com.benteng
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    # TrollStore 路线：完全跳过 Xcode 签名，由 build-ipa.sh 里的 ldid 处理
+    CODE_SIGNING_ALLOWED: NO
+    CODE_SIGNING_REQUIRED: NO
+    CODE_SIGN_IDENTITY: ""
+    ENABLE_BITCODE: NO
+    SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+
+targets:
+  NetPilot:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+    dependencies:
+      - target: PacketTunnel
+        embed: true
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: 网络助手
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSLocalNetworkUsageDescription: 需要访问本地网络以读取热点连接设备信息。
+        NSBonjourServices:
+          - _netpilot._tcp
+        # JAILBREAK: 允许通过 prefs: 私有 scheme 跳转系统设置
+        LSApplicationQueriesSchemes:
+          - prefs
+          - App-Prefs
+    entitlements:
+      path: Entitlements/NetPilot.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.benteng.netpilot
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+
+  PacketTunnel:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Extension
+    info:
+      path: Extension/Info.plist
+      properties:
+        CFBundleDisplayName: NetPilot Tunnel
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
+    entitlements:
+      path: Entitlements/PacketTunnel.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.benteng.netpilot.tunnel
+
+  RootHelper:
+    type: tool
+    platform: iOS
+    sources:
+      - path: Tools/RootHelper
+    entitlements:
+      path: Entitlements/RootHelper.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.benteng.netpilot.helper
+        PRODUCT_NAME: netpilot-helper
+        MACH_O_TYPE: mh_execute

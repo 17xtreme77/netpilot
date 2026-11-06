@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- JAILBREAK: 脱沙盒，否则读不到 /var/db/dhcpd_leases、跑不了 pfctl -->
+	<key>com.apple.private.security.no-sandbox</key>
+	<true/>
+
+	<!-- JAILBREAK: 让内核把它当系统应用，TrollStore 的持久化前提 -->
+	<key>platform-application</key>
+	<true/>
+
+	<!-- JAILBREAK: 以 uid 0 拉起包内的 netpilot-helper -->
+	<key>com.apple.private.persona-mgmt</key>
+	<true/>
+
+	<!-- 需要读写的具体路径，收敛权限范围 -->
+	<key>com.apple.security.exception.files.absolute-path.read-write</key>
+	<array>
+		<string>/var/mobile/Library/NetPilot/</string>
+		<string>/private/var/mobile/Library/NetPilot/</string>
+	</array>
+	<key>com.apple.security.exception.files.absolute-path.read-only</key>
+	<array>
+		<string>/var/db/dhcpd_leases</string>
+		<string>/private/var/db/dhcpd_leases</string>
+		<string>/usr/sbin/arp</string>
+		<string>/sbin/pfctl</string>
+	</array>
+
+	<!-- 本地网络访问（读热点设备信息） -->
+	<key>com.apple.developer.networking.networkextension</key>
+	<array>
+		<string>packet-tunnel-provider</string>
+	</array>
+	<key>com.apple.developer.networking.vpn.api</key>
+	<array>
+		<string>allow-vpn</string>
+	</array>
+</dict>
+</plist>

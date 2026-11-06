@@ -1,0 +1,103 @@
+name: Build IPA
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build unsigned IPA for TrollStore
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcode-select -p
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Install xcodegen and ldid
+        run: |
+          brew install xcodegen ldid
+          xcodegen --version
+          ldid -v || true
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project NetPilot.xcodeproj \
+            -scheme NetPilot \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Verify artifacts
+        run: |
+          APP="build/DerivedData/Build/Products/Release-iphoneos/NetPilot.app"
+          ls -la "$APP"
+          echo "--- PlugIns ---"
+          ls -la "$APP/PlugIns" || echo "no PlugIns"
+          test -f "$APP/NetPilot" || { echo "主二进制缺失"; exit 1; }
+
+      - name: Stage root helper
+        run: |
+          APP="build/DerivedData/Build/Products/Release-iphoneos/NetPilot.app"
+          HELPER="build/DerivedData/Build/Products/Release-iphoneos/netpilot-helper"
+          if [ -f "$HELPER" ]; then
+            cp "$HELPER" "$APP/netpilot-helper"
+            chmod 755 "$APP/netpilot-helper"
+            echo "helper 已放入"
+          else
+            echo "::warning::未找到 netpilot-helper，热点开关的 root 路径不可用"
+          fi
+
+      - name: Sign with ldid
+        run: |
+          APP="build/DerivedData/Build/Products/Release-iphoneos/NetPilot.app"
+          ldid -SEntitlements/NetPilot.entitlements "$APP/NetPilot"
+          if [ -f "$APP/PlugIns/PacketTunnel.appex/PacketTunnel" ]; then
+            ldid -SEntitlements/PacketTunnel.entitlements "$APP/PlugIns/PacketTunnel.appex/PacketTunnel"
+          fi
+          if [ -f "$APP/netpilot-helper" ]; then
+            ldid -SEntitlements/RootHelper.entitlements "$APP/netpilot-helper"
+          fi
+          echo "--- 验证签名 ---"
+          ldid -e "$APP/NetPilot" | head -30
+
+      - name: Package IPA
+        run: |
+          APP="build/DerivedData/Build/Products/Release-iphoneos/NetPilot.app"
+          mkdir -p build/Payload
+          cp -R "$APP" build/Payload/
+          cd build && zip -qry NetPilot.ipa Payload
+          ls -lh NetPilot.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: NetPilot-ipa
+          path: build/NetPilot.ipa
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: build/DerivedData/Logs
+          if-no-files-found: ignore
