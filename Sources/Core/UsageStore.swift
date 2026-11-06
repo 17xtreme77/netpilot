@@ -14,6 +14,16 @@ struct UsageBucket: Codable, Identifiable, Equatable {
     var wifiTotal: UInt64 { wifiIn &+ wifiOut }
 }
 
+/// 单日累计，用于概览页的趋势柱状图。
+struct DailyBucket: Codable, Identifiable, Equatable {
+    var day: String          // "2026-11-06"
+    var cell: UInt64 = 0     // 移动数据上下行合计
+    var wifi: UInt64 = 0
+
+    var id: String { day }
+    var total: UInt64 { cell &+ wifi }
+}
+
 /// 流量累加器。
 ///
 /// 核心难点：`getifaddrs` 给的是「开机以来」的绝对值，重启会归零。
@@ -27,6 +37,8 @@ final class UsageStore: ObservableObject {
 
     @Published private(set) var current: UsageBucket
     @Published private(set) var history: [UsageBucket]
+    /// 最近若干天的用量，最多保留 60 天。
+    @Published private(set) var daily: [DailyBucket]
     @Published private(set) var isCellularActive: Bool = false
     @Published private(set) var planBytes: UInt64 = 0
 
@@ -42,6 +54,7 @@ final class UsageStore: ObservableObject {
     private enum Key {
         static let current = "netpilot.usage.current"
         static let history = "netpilot.usage.history"
+        static let daily   = "netpilot.usage.daily"
         static let plan = "netpilot.usage.planBytes"
     }
 
@@ -60,6 +73,13 @@ final class UsageStore: ObservableObject {
             history = saved
         } else {
             history = []
+        }
+
+        if let data = defaults.data(forKey: Key.daily),
+           let saved = try? JSONDecoder().decode([DailyBucket].self, from: data) {
+            daily = saved
+        } else {
+            daily = []
         }
 
         planBytes = UInt64(defaults.double(forKey: Key.plan))
@@ -104,6 +124,10 @@ final class UsageStore: ObservableObject {
             current.wifiIn  &+= wifiIn
             current.wifiOut &+= wifiOut
 
+            accumulateDaily(now: now,
+                            cell: cellIn &+ cellOut,
+                            wifi: wifiIn &+ wifiOut)
+
             if let lastTime = lastSampleTime {
                 let elapsed = max(now.timeIntervalSince(lastTime), 0.001)
                 downRate = Double(cellIn &+ wifiIn) / elapsed
@@ -122,6 +146,53 @@ final class UsageStore: ObservableObject {
         if current >= previous { return current - previous }
         // 计数器变小 = 设备重启过，把当前值当成新增
         return current
+    }
+
+    // MARK: - 按日累计
+
+    private func accumulateDaily(now: Date, cell: UInt64, wifi: UInt64) {
+        guard cell > 0 || wifi > 0 else { return }
+        let key = Self.dayKey(for: now)
+
+        if let index = daily.firstIndex(where: { $0.day == key }) {
+            daily[index].cell &+= cell
+            daily[index].wifi &+= wifi
+        } else {
+            daily.append(DailyBucket(day: key, cell: cell, wifi: wifi))
+            if daily.count > 60 {
+                daily.removeFirst(daily.count - 60)
+            }
+        }
+    }
+
+    /// 取最近 `count` 天，缺的天补 0，保证柱状图根数固定。
+    func recentDays(_ count: Int) -> [DailyBucket] {
+        Self.fillDays(daily, count: count, now: Date())
+    }
+
+    /// 补齐日期序列。抽成纯函数，便于在本地单测里直接验证。
+    nonisolated static func fillDays(_ buckets: [DailyBucket],
+                                     count: Int,
+                                     now: Date) -> [DailyBucket] {
+        guard count > 0 else { return [] }
+        let calendar = Calendar.current
+        var result: [DailyBucket] = []
+        result.reserveCapacity(count)
+
+        for offset in stride(from: count - 1, through: 0, by: -1) {
+            let date = calendar.date(byAdding: .day, value: -offset, to: now) ?? now
+            let key = dayKey(for: date)
+            result.append(buckets.first(where: { $0.day == key }) ?? DailyBucket(day: key))
+        }
+        return result
+    }
+
+    nonisolated static func dayKey(for date: Date) -> String {
+        // 刻意不用 DateFormatter：概览页每秒重算 24 天的 key，
+        // DateFormatter 的构造开销在这个频率下会拖住主线程。
+        let parts = Calendar.current.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d",
+                      parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
     }
 
     /// 跨月归档。
@@ -177,6 +248,9 @@ final class UsageStore: ObservableObject {
         }
         if let data = try? JSONEncoder().encode(history) {
             defaults.set(data, forKey: Key.history)
+        }
+        if let data = try? JSONEncoder().encode(daily) {
+            defaults.set(data, forKey: Key.daily)
         }
     }
 

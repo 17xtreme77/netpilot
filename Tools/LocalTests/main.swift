@@ -164,6 +164,45 @@ check("1024 → 1.0 KB", (1024 as UInt64).byteString == "1.0 KB", (1024 as UInt6
 check("1.5 GB", (1_610_612_736 as UInt64).byteString == "1.5 GB", (1_610_612_736 as UInt64).byteString)
 check("大数不带小数位", (751_619_686_400 as UInt64).byteString == "700 GB", (751_619_686_400 as UInt64).byteString)
 
+// MARK: - 6. 按日统计补齐
+
+section("按日统计补齐")
+
+let cal = Calendar.current
+let fixedNow = cal.date(from: DateComponents(year: 2026, month: 11, day: 6, hour: 12))!
+
+check("dayKey 格式", UsageStore.dayKey(for: fixedNow) == "2026-11-06",
+      UsageStore.dayKey(for: fixedNow))
+
+// 只给了 3 天有数据，其余应补 0
+let sparse = [
+    DailyBucket(day: "2026-11-02", cell: 100, wifi: 5),
+    DailyBucket(day: "2026-11-04", cell: 300, wifi: 0),
+    DailyBucket(day: "2026-11-06", cell: 500, wifi: 50)
+]
+let filled = UsageStore.fillDays(sparse, count: 5, now: fixedNow)
+
+check("补齐后的天数正确", filled.count == 5, "实际 \(filled.count)")
+check("按时间正序（最旧在前）",
+      filled.map(\.day) == ["2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06"],
+      "实际 \(filled.map(\.day))")
+check("最后一天是今天", filled.last?.day == "2026-11-06")
+check("缺失的天补 0", filled[1].total == 0 && filled[3].total == 0)
+check("已有数据不丢", filled[0].total == 105 && filled[2].total == 300 && filled[4].total == 550,
+      "\(filled.map(\.total))")
+check("总数不变", filled.reduce(0) { $0 + $1.total } == 955)
+
+// 越界保护
+check("count = 0 返回空", UsageStore.fillDays(sparse, count: 0, now: fixedNow).isEmpty)
+check("空数据也补齐", UsageStore.fillDays([], count: 3, now: fixedNow).count == 3)
+
+// 跨月不跳日：10 月 31 日往前推 3 天要落到 10/28
+let oct31 = cal.date(from: DateComponents(year: 2026, month: 10, day: 31, hour: 9))!
+let crossMonth = UsageStore.fillDays([], count: 4, now: oct31)
+check("跨月连续",
+      crossMonth.map(\.day) == ["2026-10-28", "2026-10-29", "2026-10-30", "2026-10-31"],
+      "实际 \(crossMonth.map(\.day))")
+
 // MARK: - 汇总
 
 print("\n" + String(repeating: "─", count: 46))

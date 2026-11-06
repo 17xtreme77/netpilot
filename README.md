@@ -76,20 +76,35 @@ NetPilot/
 ├── Sources/
 │   ├── App/
 │   │   ├── NetPilotApp.swift    入口
-│   │   └── RootView.swift       三个 Tab + 全部界面
+│   │   ├── RootView.swift       四个 Tab 容器
+│   │   ├── Theme.swift          设计令牌（色/字/距）+ 数值格式化
+│   │   ├── Components/
+│   │   │   ├── Gauges.swift     RingGauge 环形进度、Sparkline 柱状图
+│   │   │   └── Cards.swift      Card / 行 / 分区标题 / 提示条 / 开关 / 空状态
+│   │   └── Views/
+│   │       ├── OverviewView.swift   概览
+│   │       ├── HotspotView.swift    热点（含 HotspotModel、设备行）
+│   │       ├── ProxyView.swift      代理
+│   │       └── SettingsView.swift   设置（含 EnvProbe 环境自检）
 │   └── Core/
 │       ├── InterfaceReader.swift   getifaddrs 网卡计数器
-│       ├── UsageStore.swift        月度流量累加与持久化
+│       ├── UsageStore.swift        月度/按日流量累加与持久化
 │       ├── HotspotMonitor.swift    热点状态（dlopen 私有符号）
 │       ├── HotspotClients.swift    DHCP leases / ARP 解析
 │       ├── HotspotController.swift 开关热点（root helper）
 │       ├── ClientBlocker.swift     pf 规则阻断
 │       └── ProxyManager.swift      NETunnelProviderManager 封装
+├── Design/
+│   ├── ui-mockup.html           界面设计稿（6 屏，可在浏览器打开）
+│   └── ui-mockup-preview.png    整页预览图
 ├── Extension/
 │   └── PacketTunnelProvider.swift  透明代理隧道
 ├── Tools/
 │   ├── RootHelper/main.swift       root 权限执行器
-│   └── build-ipa.sh               一键出 IPA
+│   ├── LocalTests/main.swift       纯逻辑测试（42 项）
+│   ├── test-local.sh               本机跑测试
+│   ├── ci-build.sh                 令牌一键出包
+│   └── build-ipa.sh                一键出 IPA
 └── Entitlements/
     ├── NetPilot.entitlements
     ├── PacketTunnel.entitlements
@@ -140,7 +155,7 @@ NetPilot/
 
 在没有 Xcode / iOS SDK 的环境下，把不依赖 UIKit 与 NetworkExtension 的纯逻辑模块用本机 Swift 真实编译并执行。
 
-**当前结果：32 项全通过。**
+**当前结果：42 项全通过。**
 
 覆盖范围：
 - DHCP 租约解析（多设备、缺主机名、乱码输入、IP 数值排序）
@@ -149,6 +164,7 @@ NetPilot/
 - pf 规则生成（空列表 / 单 IP 双向 / 多 IP / 非法 IP 过滤）
 - 真实网卡计数器（读本机 `getifaddrs`，发真实请求验证计数增长）
 - 字节格式化
+- 按日统计补齐（缺失补 0 / 时间正序 / 跨月连续 / 越界保护）
 
 ### 测试过程中修掉的两个真 bug
 
@@ -161,7 +177,40 @@ NetPilot/
 
 ---
 
-## 八、CI 构建（本机没有 Xcode 时的方案）
+## 八、界面实现
+
+设计稿在 `Design/ui-mockup.html`，用浏览器打开可缩放查看 6 个屏幕；`Design/ui-mockup-preview.png` 是整页预览图。
+
+实现上不引第三方 UI 库，全部 SwiftUI 原生绘制，新增 5 个组件：
+
+| 组件 | 位置 | 作用 |
+|---|---|---|
+| `RingGauge` | `Components/Gauges.swift` | 环形进度，环内显示百分比 |
+| `Sparkline` | `Components/Gauges.swift` | 每日用量柱状图，末根（今天）突出 |
+| `Card` / `KeyValueRow` / `ActionRow` | `Components/Cards.swift` | 统一卡片容器与行样式 |
+| `MintSwitch` | `Components/Cards.swift` | 深色卡内高对比开关（系统 Toggle 对比度不够） |
+| `AlertBanner` / `EmptyStateView` | `Components/Cards.swift` | 提示条与空状态 |
+
+几条实现约束：
+
+- **锁死深色**：`RootView` 上 `.preferredColorScheme(.dark)`。这套配色没有浅色版本，硬切会崩掉对比度。
+- **数字全部 `monospacedDigit`**：实时速率每秒刷新，非等宽会让整行左右抖动。
+- **薄荷绿只表示「通路/正常」**，代理页换蓝 `#5AA2FF`，避免两个绿开关语义混淆；红/琥珀只用于告警与破坏性操作。
+- **设置页有环境自检**：越狱、热点接口、pf、DHCP 租约逐项打勾。装到手机上第一件事就是看哪条链断了。
+
+### 这一版验证到什么程度
+
+本机没有 iOS SDK，所以：
+
+- `Theme.swift` + `Components/*.swift` 用 **macOS SDK 真实 typecheck 通过**（这层 API 在两端通用）
+- 四个 View 连同真实 Core 类型一起 typecheck 通过（临时移除 `keyboardType` / `textInputAutocapitalization` 这两个 iOS 专属修饰符后，**0 error**）
+- 全部文件 `swiftc -parse` 语法检查通过
+
+**没验证的**：真机渲染效果、TabView 在深色下的实际观感、`GeometryReader` 在滚动视图里的表现。这些要等 CI 出包后上手机看。
+
+---
+
+## 九、CI 构建（本机没有 Xcode 时的方案）
 
 本机装不了 Xcode（磁盘只剩 6.4 GB，需要 15 GB 下载 + 约 40 GB 展开）。用 GitHub Actions 的 macOS 机器构建，不占本地磁盘：
 
@@ -177,7 +226,7 @@ gh repo create netpilot --private --source=. --push
 
 ---
 
-## 九、iPhone 14 Pro / iOS 16.4.1 适配结论
+## 十、iPhone 14 Pro / iOS 16.4.1 适配结论
 
 这台机器（A16 + iOS 16.4.1）的条件比预想的好：
 
