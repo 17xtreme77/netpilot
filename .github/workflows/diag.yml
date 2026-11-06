@@ -2,11 +2,15 @@ name: Diag
 on:
   workflow_dispatch:
 jobs:
-  linux:
-    runs-on: ubuntu-latest
+  m13:
+    runs-on: macos-13
     steps:
-      - run: echo "linux runner ok"
-  mac:
+      - run: sw_vers
+  m15:
+    runs-on: macos-15
+    steps:
+      - run: sw_vers
+  m14:
     runs-on: macos-14
     steps:
-      - run: echo "mac runner ok"; xcodebuild -version
+      - run: sw_vers
